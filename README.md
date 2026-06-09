@@ -4,55 +4,82 @@ Multi-cloud infrastructure as code using Terraform, provisioning resources on bo
 
 ## Architecture
 
-```
-┌────────────────────────── AWS (us-east-2) ──────────────────────────┐
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                         VPC 10.0.0.0/16                       │   │
-│  │                                                         │   │   │
-│  │  ┌──────────────┐  ┌──────────────┐                    │   │   │
-│  │  │ Public Subnet│  │ Public Subnet│   ┌─────────────┐ │   │   │
-│  │  │  10.0.10.0/24│  │  10.0.11.0/24│   │ Internet GW │ │   │   │
-│  │  └──────┬───────┘  └──────┬───────┘   └──────┬──────┘ │   │   │
-│  │         └─────────┬───────┘                   │        │   │   │
-│  │                   │                           │        │   │   │
-│  │         ┌─────────▼─────────┐                  │        │   │   │
-│  │         │ Application LB   │──────────────────┘        │   │   │
-│  │         │ (internet-facing)│                            │   │   │
-│  │         └────────┬─────────┘                            │   │   │
-│  │                  │                                      │   │   │
-│  │  ┌───────────────▼───────────────────────────────────┐ │   │   │
-│  │  │            Private Subnets                        │ │   │   │
-│  │  │  10.0.20.0/24  │  10.0.21.0/24                    │ │   │   │
-│  │  │       ┌────────▼────────┐                          │ │   │   │
-│  │  │       │   EC2 Instance  │                          │ │   │   │
-│  │  │       │   t3.micro      │                          │ │   │   │
-│  │  │       │   App Server    │                          │ │   │   │
-│  │  │       └─────────────────┘                          │ │   │   │
-│  │  └────────────────────────────────────────────────────┘ │   │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+### AWS
 
-┌──────────────────────── Azure (eastus2) ────────────────────────────┐
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                     Resource Group                            │   │
-│  │                                                         │   │   │
-│  │  ┌──────────────────────────────────────────────────────┐ │   │   │
-│  │  │                VNet 10.0.0.0/16                       │ │   │   │
-│  │  │  ┌────────────────────────────────────────────────┐  │ │   │   │
-│  │  │  │         Subnet 10.0.1.0/24                      │  │ │   │   │
-│  │  │  │  ┌──────────────────────────────────────────┐  │  │ │   │   │
-│  │  │  │  │  Public IP (Static) ─► NIC ─► Linux VM    │  │  │ │   │   │
-│  │  │  │  │                  Standard_D2s_v3            │  │  │ │   │   │
-│  │  │  │  │                  Ubuntu 22.04 LTS           │  │  │ │   │   │
-│  │  │  │  └──────────────────────────────────────────┘  │  │ │   │   │
-│  │  │  └────────────────────────────────────────────────┘  │ │   │   │
-│  │  └──────────────────────────────────────────────────────┘ │   │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph AWS["AWS (us-east-2)"]
+        subgraph VPC["VPC 10.0.0.0/16"]
+            IGW["Internet Gateway"]
+            RT["Public Route Table<br/>0.0.0.0/0 → IGW"]
+
+            subgraph PublicSubnets["Public Subnets"]
+                PS1["Public Subnet 1<br/>10.0.10.0/24<br/>us-east-2a"]
+                PS2["Public Subnet 2<br/>10.0.11.0/24<br/>us-east-2b"]
+            end
+
+            ALB["Application Load Balancer<br/>internet-facing | HTTP :80"]
+            LB_SG["SG: LoadBalancerSG<br/>inbound :80"]
+
+            subgraph PrivateSubnets["Private Subnets"]
+                PR1["Private Subnet 1<br/>10.0.20.0/24<br/>us-east-2a"]
+                PR2["Private Subnet 2<br/>10.0.21.0/24<br/>us-east-2b"]
+
+                EC2["EC2 Instance<br/>t3.micro<br/>App Server"]
+                Bastion_SG["SG: BastionHostSG<br/>SSH :22"]
+            end
+        end
+    end
+
+    IGW --> RT
+    RT --> PS1
+    RT --> PS2
+    PS1 --> ALB
+    PS2 --> ALB
+    LB_SG -.-> ALB
+    ALB -->|"forward :80"| PR1
+    EC2 --- PrivateSubnets
+    Bastion_SG -.-> EC2
+```
+
+### Azure
+
+```mermaid
+graph LR
+    subgraph Azure["Azure (eastus2)"]
+        subgraph RG["Resource Group"]
+            subgraph VNet["VNet 10.0.0.0/16"]
+                subgraph Subnet["Subnet 10.0.1.0/24"]
+                    PIP["Public IP<br/>Standard | Static"]
+                    NIC["Network Interface<br/>Dynamic private IP"]
+                    VM["Linux VM<br/>Standard_D2s_v3<br/>Ubuntu 22.04 LTS"]
+                end
+            end
+        end
+    end
+
+    PIP --> NIC
+    NIC --> VM
+```
+
+### CI/CD Pipeline
+
+```mermaid
+graph LR
+    subgraph CI["Continuous Integration"]
+        PR[Pull Request] --> FMT["terraform fmt"]
+        FMT --> INIT["terraform init"]
+        INIT --> VAL["terraform validate"]
+        VAL --> PLAN["terraform plan"]
+        PLAN --> COMMENT["Post plan as PR comment"]
+    end
+
+    subgraph CD["Continuous Deployment"]
+        MANUAL["workflow_dispatch<br/>(type 'yes')"] --> INIT2["terraform init"]
+        INIT2 --> APPLY["terraform apply"]
+    end
+
+    CI -.->|"merge PR"| CD
 ```
 
 ## Prerequisites
