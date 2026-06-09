@@ -1,0 +1,134 @@
+name: Terraform CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'IaC/**'
+      - 'Dockerfile'
+
+env:
+  AWS_REGION: us-east-2
+  ROLE_ARN: arn:aws:iam::463032375612:role/github-actions-terraform-role
+
+jobs:
+  terraform-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Azure OIDC Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get Azure OIDC token for Terraform
+        run: |
+          token=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r '.value')
+          echo "ARM_OIDC_TOKEN=$token" >> $GITHUB_ENV
+
+      - name: Build Docker image
+        run: docker build -t iac-multi-cloud-aws-azure .
+
+      - name: Terraform Format
+        run: >
+          docker run --rm
+          -v $PWD/IaC:/iac
+          iac-multi-cloud-aws-azure
+          bash -c "cd /iac && terraform fmt -check -recursive"
+
+      - name: Terraform Init
+        run: >
+          docker run --rm
+          -v $PWD/IaC:/iac
+          -e AWS_ACCESS_KEY_ID=${{ env.AWS_ACCESS_KEY_ID }}
+          -e AWS_SECRET_ACCESS_KEY=${{ env.AWS_SECRET_ACCESS_KEY }}
+          -e AWS_SESSION_TOKEN=${{ env.AWS_SESSION_TOKEN }}
+          -e AWS_DEFAULT_REGION=${{ env.AWS_REGION }}
+          -e ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}
+          -e ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}
+          -e ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          -e ARM_USE_OIDC=true
+          -e ARM_OIDC_TOKEN=${{ env.ARM_OIDC_TOKEN }}
+          iac-multi-cloud-aws-azure
+          bash -c "cd /iac && terraform init"
+
+      - name: Terraform Validate
+        run: >
+          docker run --rm
+          -v $PWD/IaC:/iac
+          iac-multi-cloud-aws-azure
+          bash -c "cd /iac && terraform validate"
+
+      - name: Terraform Plan
+        id: plan
+        run: >
+          docker run --rm
+          -v $PWD/IaC:/iac
+          -e AWS_ACCESS_KEY_ID=${{ env.AWS_ACCESS_KEY_ID }}
+          -e AWS_SECRET_ACCESS_KEY=${{ env.AWS_SECRET_ACCESS_KEY }}
+          -e AWS_SESSION_TOKEN=${{ env.AWS_SESSION_TOKEN }}
+          -e AWS_DEFAULT_REGION=${{ env.AWS_REGION }}
+          -e ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}
+          -e ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}
+          -e ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          -e ARM_USE_OIDC=true
+          -e ARM_OIDC_TOKEN=${{ env.ARM_OIDC_TOKEN }}
+          iac-multi-cloud-aws-azure
+          bash -c "cd /iac && terraform plan -no-color" > plan_output.txt
+
+      - name: Post plan as PR comment
+        if: always() && steps.plan.outcome != 'skipped'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = `## Terraform Plan
+
+            <details><summary>Click to expand</summary>
+
+            \`\`\`terraform
+            ${fs.readFileSync('plan_output.txt', 'utf8')}
+            \`\`\`
+
+            </details>`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Terraform Plan')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: output,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: output,
+              });
+            }
