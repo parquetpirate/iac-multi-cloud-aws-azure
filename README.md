@@ -105,18 +105,18 @@ graph LR
 ├── .github/
 │   └── workflows/
 │       ├── docker-publish.yml       # Build & push Docker image to ghcr.io
-│       ├── terraform-ci.yml         # CI: fmt, init, validate, plan on PR
 │       ├── terraform-cd.yml         # CD: manual apply via workflow_dispatch
+│       ├── terraform-ci.yml         # CI: fmt, init, validate, plan on PR
 │       └── terraform-destroy.yml    # Manual destroy via workflow_dispatch
+├── .gitignore
+├── Dockerfile                       # Terraform + AWS CLI + Azure CLI image
 ├── IaC/
-│   ├── providers.tf                 # Terraform ≥1.15 + AWS & Azure providers
-│   ├── variables.tf                 # Input variables
 │   ├── aws.tf                       # AWS resources (VPC, ALB, EC2, SGs)
 │   ├── azure.tf                     # Azure resources (RG, VNet, VM)
+│   ├── backend.tf                   # Remote S3 state for CI/CD persistence
 │   ├── outputs.tf                   # ALB DNS, VM IPs, VPC/RG IDs
-│   └── backend.tf                   # Remote S3 state for CI/CD persistence
-├── Dockerfile                       # Terraform + AWS CLI + Azure CLI image
-├── .gitignore
+│   ├── providers.tf                 # Terraform ≥1.15 + AWS & Azure providers
+│   └── variables.tf                 # Input variables
 └── README.md
 ```
 
