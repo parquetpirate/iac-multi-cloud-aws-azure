@@ -1,0 +1,17 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Variaveis locais (podem conter dados sensiveis)
+*.tfvars
+!terraform.tfvars.example
+
+# Arquivos gerados pelo CI
+plan_output.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
