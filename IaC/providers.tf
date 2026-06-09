@@ -1,4 +1,4 @@
-# Multi-cloud Terraform configuration (AWS + Azure)
+# Multi Cloud Terraform configuration (AWS + Azure)
 
 # Required Terraform version
 terraform {
