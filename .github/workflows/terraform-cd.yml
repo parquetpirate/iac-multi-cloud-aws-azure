@@ -16,7 +16,6 @@ jobs:
   terraform-apply:
     runs-on: ubuntu-latest
     if: github.event.inputs.confirm == 'yes'
-    environment: production
     permissions:
       contents: read
       id-token: write
