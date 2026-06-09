@@ -19,6 +19,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      packages: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -36,8 +37,11 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Build Docker image
-        run: docker build -t iac-multi-cloud-aws-azure .
+      - name: Pull Docker image
+        run: |
+          docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+          docker pull ghcr.io/${{ github.repository }}:latest
+          docker tag ghcr.io/${{ github.repository }}:latest iac-multi-cloud-aws-azure
 
       - name: Terraform Init
         run: >
